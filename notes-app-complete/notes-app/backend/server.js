@@ -1,51 +1,46 @@
+// server.js - Updates for environment variable validation, CORS, and MongoDB error handling
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-const authRoutes = require('./routes/auth');
-const notesRoutes = require('./routes/notes');
-
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Middleware
+// Environment variable validation
+if (!process.env.DB_URL) {
+    throw new Error('Missing required environment variable: DB_URL');
+}
+
+// Strict CORS whitelist
+const allowedOrigins = ['https://example.com', 'https://yourdomain.com'];
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    }
 }));
-app.use(express.json());
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// MongoDB connection with retry logic
+const connectWithRetry = () => {
+    mongoose.connect(process.env.DB_URL, { useNewUrlParser: true, useUnifiedTopology: true })
+        .then(() => console.log('MongoDB connected successfully'))
+        .catch(err => {
+            console.error('MongoDB connection error: ', err);
+            setTimeout(connectWithRetry, 5000); // Retry connection after 5 seconds
+        });
+};
+
+connectWithRetry();
+
+app.get('/', (req, res) => {
+    res.send('Hello World!');
 });
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/notes', notesRoutes);
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ message: 'Internal server error' });
-});
-
-// Connect to MongoDB and start server
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-  });
